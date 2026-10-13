@@ -1,3 +1,4 @@
+
 def current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer)
 ):
@@ -23,3 +24,4 @@ def current_user(
         raise HTTPException(401, "User no longer exists")
 
     return dict(user) | {"jti": claims["jti"]}
+
