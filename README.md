@@ -1,1 +1,1 @@
-# My Independent Project
+# My Project
