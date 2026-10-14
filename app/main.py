@@ -66,3 +66,26 @@ def register(data: RegisterRequest):
         "did": did,
         "public_key": public_key
     }
+
+
+
+@app.post("/login")
+def login(data: LoginRequest):
+    with connection() as db:
+        user = db.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (data.username,)
+        ).fetchone()
+
+    if user is None or not verify_password(
+        data.password, user["password_hash"]
+    ):
+        audit("login_failed", data.username, {})
+        raise HTTPException(401, "Invalid username or password")
+
+    token = create_access_token(
+        user["id"], user["username"], user["role"]
+    )
+    audit("login_success", data.username, {})
+
+    return {"access_token": token, "token_type": "bearer"}
