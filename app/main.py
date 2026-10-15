@@ -89,3 +89,51 @@ def login(data: LoginRequest):
     audit("login_success", data.username, {})
 
     return {"access_token": token, "token_type": "bearer"}
+
+
+
+@app.get("/did/verify")
+def did_verify(did: str, user=Depends(current_user)):
+    chain = load_chain()
+    found = next(
+        (block for block in chain if block["did"] == did),
+        None
+    )
+
+    return {
+        "did": did,
+        "found": found is not None,
+        "ledger_integrity": verify_chain(),
+        "record": found
+    }
+
+
+@app.get("/ledger")
+def ledger(user=Depends(admin_user)):
+    return {
+        "valid": verify_chain(),
+        "blocks": load_chain()
+    }
+@app.get("/did/verify")
+def did_verify(did: str, user=Depends(current_user)):
+    chain = load_chain()
+    found = next(
+        (block for block in chain if block["did"] == did),
+        None
+    )
+
+    return {
+        "did": did,
+        "found": found is not None,
+        "ledger_integrity": verify_chain(),
+        "record": found
+    }
+
+
+@app.get("/ledger")
+def ledger(user=Depends(admin_user)):
+    return {
+        "valid": verify_chain(),
+        "blocks": load_chain()
+    }
+
