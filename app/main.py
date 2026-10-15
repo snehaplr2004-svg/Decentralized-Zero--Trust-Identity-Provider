@@ -44,4 +44,31 @@ def revoke_current_token(user=Depends(current_user)):
 
     audit("token_revoked", user["username"], {"jti": user["jti"]})
     return {"message": "Token revoked"}
+@app.post("/access/check")
+def access_check(
+    data: AccessRequest,
+    request: Request,
+    user=Depends(current_user)
+):
+    ip_address = request.client.host if request.client else ""
 
+    result = evaluate_access(
+        authenticated=True,
+        device_posture=data.device_posture,
+        ip_address=ip_address,
+        role=user["role"]
+    )
+
+    audit(
+        "access_" + result["decision"].lower(),
+        user["username"],
+        result
+    )
+
+    if result["decision"] == "BLOCK":
+        raise HTTPException(
+            403,
+            detail=result
+        )
+
+    return result
