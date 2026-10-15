@@ -1,3 +1,9 @@
+"""
+WebAuthn (FIDO2) registration and authentication.
+
+State is kept in-memory for demo purposes. Production: persist
+credentials in Postgres and challenges in Redis with TTL.
+"""
 from webauthn import (
     generate_registration_options,
     verify_registration_response,
@@ -8,11 +14,13 @@ from webauthn.helpers.structs import (
     PublicKeyCredentialDescriptor,
     UserVerificationRequirement,
 )
+
 from app.config import settings
 
-# In-memory credential store; swap for Postgres/Redis in prod
-CREDENTIALS: dict[str, dict] = {}    # did -> credential record
-CHALLENGES: dict[str, bytes] = {}    # did -> challenge
+
+# In-memory stores (swap for DB in prod)
+CREDENTIALS: dict[str, dict] = {}
+CHALLENGES: dict[str, bytes] = {}
 
 
 def reg_options(did: str, username: str):
@@ -29,7 +37,8 @@ def reg_options(did: str, username: str):
 def reg_verify(did: str, credential: dict):
     expected = CHALLENGES.pop(did, None)
     if expected is None:
-        raise ValueError("No pending challenge")
+        raise ValueError("No pending registration challenge for this DID")
+
     verification = verify_registration_response(
         credential=credential,
         expected_challenge=expected,
@@ -48,6 +57,7 @@ def auth_options(did: str):
     cred = CREDENTIALS.get(did)
     if not cred:
         raise ValueError("DID not registered")
+
     opts = generate_authentication_options(
         rp_id=settings.RP_ID,
         allow_credentials=[PublicKeyCredentialDescriptor(id=cred["credential_id"])],
@@ -60,7 +70,8 @@ def auth_options(did: str):
 def auth_verify(did: str, credential: dict):
     expected = CHALLENGES.pop(did, None)
     if expected is None:
-        raise ValueError("No pending challenge")
+        raise ValueError("No pending authentication challenge for this DID")
+
     cred = CREDENTIALS[did]
     verification = verify_authentication_response(
         credential=credential,

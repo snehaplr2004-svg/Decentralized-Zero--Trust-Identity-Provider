@@ -1,7 +1,17 @@
+"""
+Simulated blockchain ledger.
+
+Every DID Document registration appends a new block. Blocks are chained
+by SHA-256 of (index, timestamp, document, prev_hash). The chain is
+verifiable via `.verify()`.
+
+This is intentionally simple — swap for a real ledger (Hyperledger,
+IPFS, or a testnet) in production.
+"""
 import hashlib
 import json
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -13,17 +23,29 @@ class Block:
     hash: str = field(default="")
 
     def compute_hash(self) -> str:
-        payload = json.dumps({
+        payload = json.dumps(
+            {
+                "index": self.index,
+                "timestamp": self.timestamp,
+                "did_document": self.did_document,
+                "prev_hash": self.prev_hash,
+            },
+            sort_keys=True,
+        ).encode()
+        return hashlib.sha256(payload).hexdigest()
+
+    def to_dict(self) -> dict:
+        return {
             "index": self.index,
             "timestamp": self.timestamp,
             "did_document": self.did_document,
             "prev_hash": self.prev_hash,
-        }, sort_keys=True).encode()
-        return hashlib.sha256(payload).hexdigest()
+            "hash": self.hash,
+        }
 
 
 class SimulatedLedger:
-    def __init__(self):
+    def __init__(self) -> None:
         self.chain: list[Block] = [self._genesis()]
 
     def _genesis(self) -> Block:
@@ -52,4 +74,5 @@ class SimulatedLedger:
         return True
 
 
+# Module-level singleton
 ledger = SimulatedLedger()

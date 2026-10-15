@@ -1,8 +1,22 @@
-from pydantic import BaseModel, Field
+"""Pydantic schemas for all API endpoints."""
 from typing import Literal
+from pydantic import BaseModel, Field
 
 
-# ---------- WebAuthn (Week 2) ----------
+# ---------- DIDs ----------
+class DIDRegisterRequest(BaseModel):
+    label: str | None = None
+
+
+class DIDRegisterResponse(BaseModel):
+    did: str
+    did_document: dict
+    private_key_pem: str
+    anchored_in_block: int
+    block_hash: str
+
+
+# ---------- WebAuthn ----------
 class RegBegin(BaseModel):
     did: str
     username: str
@@ -22,24 +36,12 @@ class AuthComplete(BaseModel):
     credential: dict
 
 
-# ---------- ZTNA (Week 3) ----------
+# ---------- ZTNA ----------
 class RiskSignals(BaseModel):
-    ip_reputation: float = Field(
-        ..., ge=0.0, le=1.0,
-        description="0.0 = known malicious, 1.0 = trusted ASN",
-    )
-    device_posture: float = Field(
-        ..., ge=0.0, le=1.0,
-        description="0.0 = unpatched/rooted, 1.0 = compliant MDM device",
-    )
-    hour_of_day: int = Field(
-        ..., ge=0, le=23,
-        description="Local hour for the user (business-hours boost)",
-    )
-    geo_velocity_kmh: float = Field(
-        0.0, ge=0.0,
-        description="Speed since last login; impossible travel if > 1000",
-    )
+    ip_reputation: float = Field(..., ge=0.0, le=1.0)
+    device_posture: float = Field(..., ge=0.0, le=1.0)
+    hour_of_day: int = Field(..., ge=0, le=23)
+    geo_velocity_kmh: float = Field(0.0, ge=0.0)
 
 
 class ZTNADecision(BaseModel):
