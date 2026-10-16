@@ -72,3 +72,30 @@ def access_check(
         )
 
     return result
+@app.get("/userinfo")
+def userinfo(user=Depends(current_user)):
+    return {
+        "sub": str(user["id"]),
+        "preferred_username": user["username"],
+        "email": user["email"],
+        "did": user["did"]
+    }
+
+
+@app.post("/webauthn/auth/start")
+def webauthn_start(user=Depends(current_user)):
+    challenge = secrets.token_urlsafe(32)
+    webauthn_challenges[user["username"]] = {
+        "challenge": challenge,
+        "expires": int(time.time()) + 300
+    }
+    return {
+        "challenge": challenge,
+        "expires_in": 300,
+        "note": "Educational challenge demo, not FIDO2 verification"
+    }
+
+
+@app.get("/admin/api/logs")
+def admin_logs(user=Depends(admin_user)):
+    return {"logs": get_logs()}
