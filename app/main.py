@@ -137,3 +137,28 @@ def ledger(user=Depends(admin_user)):
         "blocks": load_chain()
     }
 
+@app.get("/admin", response_class=HTMLResponse)
+def admin_dashboard(
+    request: Request,
+    user=Depends(admin_user)
+):
+    return templates.TemplateResponse(
+        request=request,
+        name="admin.html",
+        context={
+            "users": get_users(),
+            "logs": get_logs()
+        }
+    )
+
+
+@app.get("/.well-known/openid-configuration")
+def discovery(request: Request):
+    base = str(request.base_url).rstrip("/")
+    return {
+        "issuer": base,
+        "userinfo_endpoint": base + "/userinfo",
+        "token_endpoint": base + "/login",
+        "scopes_supported": ["openid", "profile", "email"],
+        "response_types_supported": ["token"]
+    }
