@@ -1,3 +1,20 @@
+from .ledger import add_block, load_chain, verify_chain
+from .policy import evaluate_access
+from .revocation import revoke, is_revoked
+from .schemas import RegisterRequest, LoginRequest, AccessRequest
+
+app = FastAPI(title=APP_NAME, version="1.0.0")
+bearer = HTTPBearer(auto_error=False)
+templates = Jinja2Templates(directory="templates")
+
+# Educational challenge store only. This is not a real WebAuthn
+# credential store or cryptographic authenticator verification.
+webauthn_challenges = {}
+
+
+@app.on_event("startup")
+def startup():
+    init_db()
 
 def current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer)
