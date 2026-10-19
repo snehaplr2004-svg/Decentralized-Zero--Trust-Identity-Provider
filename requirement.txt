@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+PyJWT
+cryptography
+redis
+python-multipart
+jinja2
+pytest
+httpx
