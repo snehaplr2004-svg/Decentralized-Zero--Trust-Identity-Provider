@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebAuthn Test</title>
+</head>
+<body>
+    <h2>WebAuthn Test</h2>
+
+    <button id="register">Register Authenticator</button>
+    <button id="login">Login with Passkey</button>
+
+    <pre id="result"></pre>
+
+<script>
+const result = document.getElementById("result");
+
+function decodeBase64URL(value) {
+    value = value.replace(/-/g, "+").replace(/_/g, "/");
+    while (value.length % 4) value += "=";
+    return Uint8Array.from(atob(value), c => c.charCodeAt(0));
+}
+
+function encodeBase64URL(buffer) {
+    return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+}
+
+function getToken() {
+    return prompt("Paste your fresh access token:");
+}
+
+async function request(url, token, method = "POST", body = null) {
+    const headers = { Authorization: `Bearer ${token}` };
+    if (body) headers["Content-Type"] = "application/json";
+
+    const response = await fetch("http://localhost:8000" + url, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : null
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(JSON.stringify(data));
+    return data;
+}
+
+document.getElementById("register").onclick = async () => {
+    try {
+        const token = getToken();
+        if (!token) return;
+
+        result.textContent = "Starting registration...";
+
+        const options = await request(
+            "/webauthn/register/start", token
+        );
+
+        options.challenge = decodeBase64URL(options.challenge);
+        options.user.id = decodeBase64URL(options.user.id);
+
+        const credential = await navigator.credentials.create({
+            publicKey: options
+        });
+
+        const payload = {
+            id: credential.id,
+            rawId: encodeBase64URL(credential.rawId),
+            type: credential.type,
+            response: {
+                clientDataJSON: encodeBase64URL(
+                    credential.response.clientDataJSON
+                ),
+                attestationObject: encodeBase64URL(
+                    credential.response.attestationObject
+                ),
+                transports: credential.response.getTransports
+                    ? credential.response.getTransports() : []
+            },
+            clientExtensionResults: credential.getClientExtensionResults()
+        };
+
+        const data = await request(
+            "/webauthn/register/finish", token, "POST", payload
+        );
+        result.textContent = JSON.stringify(data, null, 2);
+    } catch (error) {
+        result.textContent = "Registration error: " + error.message;
+    }
+};
+
+document.getElementById("login").onclick = async () => {
+    try {
+        const token = getToken();
+        if (!token) return;
+
+        result.textContent = "Starting passkey login...";
+
+        const options = await request(
+            "/webauthn/login/start", token
+        );
+
+        options.challenge = decodeBase64URL(options.challenge);
+        if (options.allowCredentials) {
+            options.allowCredentials = options.allowCredentials.map(item => ({
+                ...item,
+                id: decodeBase64URL(item.id)
+            }));
+        }
+
+        const credential = await navigator.credentials.get({
+            publicKey: options
+        });
+
+        const payload = {
+            id: credential.id,
+            rawId: encodeBase64URL(credential.rawId),
+            type: credential.type,
+            response: {
+                clientDataJSON: encodeBase64URL(
+                    credential.response.clientDataJSON
+                ),
+                authenticatorData: encodeBase64URL(
+                    credential.response.authenticatorData
+                ),
+                signature: encodeBase64URL(
+                    credential.response.signature
+                ),
+                userHandle: credential.response.userHandle
+                    ? encodeBase64URL(credential.response.userHandle) : null
+            },
+            clientExtensionResults: credential.getClientExtensionResults()
+        };
+
+        const data = await request(
+            "/webauthn/login/finish", token, "POST", payload
+        );
+        result.textContent = JSON.stringify(data, null, 2);
+    } catch (error) {
+        result.textContent = "Login error: " + error.message;
+    }
+};
+</script>
+</body>
+</html>
