@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Zaalima Security Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background: #f4f6f9;
+            color: #172033;
+        }
+        h1, h2 { color: #163a70; }
+        .panel {
+            background: white;
+            padding: 20px;
+            margin-bottom: 24px;
+            border-radius: 10px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            background: white;
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+            overflow-wrap: anywhere;
+        }
+        th { background: #e7edf7; }
+    </style>
+</head>
+<body>
+    <h1>Zaalima Zero Trust Dashboard</h1>
+
+    <section class="panel">
+        <h2>Registered users</h2>
+        <p>Total users: 3</p>
+        <table>
+            <tr>
+                <th>Username</th>
+                <th>Email</th>
+                <th>DID</th>
+                <th>Role</th>
+            </tr>
+
+            <tr>
+                <td>sneha_test</td>
+                <td>sneha_test@example.com</td>
+                <td>did:zaalima:22f0f7097076165a349f8089093d7fcc</td>
+                <td>admin</td>
+            </tr>
+
+            <tr>
+                <td>test</td>
+                <td>ramu_test@example.com</td>
+                <td>did:zaalima:8e15192bbb9e3f5484c1f6b108e1c442</td>
+                <td>user</td>
+            </tr>
+
+            <tr>
+                <td>student01</td>
+                <td>student01@example.com</td>
+                <td>did:zaalima:391c6ee38a1ad207ec7e1a01fd35740c</td>
+                <td>user</td>
+            </tr>
+
+        </table>
+    </section>
+
+    <section class="panel">
+        <h2>Recent security events</h2>
+        <table>
+            <tr>
+                <th>Time</th>
+                <th>Event</th>
+                <th>User</th>
+                <th>Details</th>
+            </tr>
+
+            <tr>
+                <td>2026-10-23T09:45:09.311957+00:00</td>
+                <td>login_success</td>
+                <td>sneha_test</td>
+                <td>{}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-23T09:32:48.599183+00:00</td>
+                <td>login_success</td>
+                <td>sneha_test</td>
+                <td>{}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-22T15:08:25.845047+00:00</td>
+                <td>login_success</td>
+                <td>sneha_test</td>
+                <td>{}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-22T14:58:04.559039+00:00</td>
+                <td>login_success</td>
+                <td>sneha_test</td>
+                <td>{}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-22T14:57:58.777457+00:00</td>
+                <td>login_success</td>
+                <td>sneha_test</td>
+                <td>{}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-22T14:47:51.733148+00:00</td>
+                <td>token_revoked</td>
+                <td>sneha_test</td>
+                <td>{&#34;jti&#34;: &#34;kNYHBBTmOnwzbxbdGEzqwUbDQR6K__3E&#34;}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-22T14:46:23.750644+00:00</td>
+                <td>access_allow</td>
+                <td>sneha_test</td>
+                <td>{&#34;decision&#34;: &#34;ALLOW&#34;, &#34;checks&#34;: {&#34;authenticated&#34;: true, &#34;trusted_device&#34;: true, &#34;ip_present&#34;: true, &#34;valid_role&#34;: true}, &#34;reason&#34;: &#34;All demo policy checks passed&#34;}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-22T14:40:54.636012+00:00</td>
+                <td>access_block</td>
+                <td>sneha_test</td>
+                <td>{&#34;decision&#34;: &#34;BLOCK&#34;, &#34;checks&#34;: {&#34;authenticated&#34;: true, &#34;trusted_device&#34;: false, &#34;ip_present&#34;: true, &#34;valid_role&#34;: true}, &#34;reason&#34;: &#34;One or more policy checks failed&#34;}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-22T14:34:56.133569+00:00</td>
+                <td>login_success</td>
+                <td>sneha_test</td>
+                <td>{}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-22T14:24:34.172967+00:00</td>
+                <td>login_success</td>
+                <td>sneha_test</td>
+                <td>{}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-22T14:21:22.223035+00:00</td>
+                <td>registration</td>
+                <td>sneha_test</td>
+                <td>{&#34;did&#34;: &#34;did:zaalima:22f0f7097076165a349f8089093d7fcc&#34;}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-22T14:16:21.231271+00:00</td>
+                <td>registration</td>
+                <td>test</td>
+                <td>{&#34;did&#34;: &#34;did:zaalima:8e15192bbb9e3f5484c1f6b108e1c442&#34;}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-12T14:36:15.222527+00:00</td>
+                <td>login_success</td>
+                <td>student01</td>
+                <td>{}</td>
+            </tr>
+
+            <tr>
+                <td>2026-10-12T14:30:45.574561+00:00</td>
+                <td>registration</td>
+                <td>student01</td>
+                <td>{&#34;did&#34;: &#34;did:zaalima:391c6ee38a1ad207ec7e1a01fd35740c&#34;}</td>
+            </tr>
+
+        </table>
+    </section>
+</body>
+</html>
