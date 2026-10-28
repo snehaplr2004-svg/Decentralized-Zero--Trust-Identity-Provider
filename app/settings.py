@@ -83,3 +83,11 @@ def decrypt_private_key(encrypted_private_key: str) -> bytes:
         return _fernet().decrypt(encrypted_private_key.encode("utf-8"))
     except InvalidToken as exc:
         raise ValueError("Private key could not be decrypted") from exc
+def sign_payload(private_key_bytes: bytes, payload: dict) -> str:
+    """Sign canonical JSON with Ed25519; return base64url signature."""
+    private = Ed25519PrivateKey.from_private_bytes(private_key_bytes)
+    message = json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    signature = private.sign(message)
+    return base64.urlsafe_b64encode(signature).decode().rstrip("=")
