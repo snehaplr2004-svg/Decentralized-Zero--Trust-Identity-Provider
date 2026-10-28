@@ -91,3 +91,20 @@ def sign_payload(private_key_bytes: bytes, payload: dict) -> str:
     ).encode("utf-8")
     signature = private.sign(message)
     return base64.urlsafe_b64encode(signature).decode().rstrip("=")
+def verify_payload(public_key_b64: str, payload: dict, signature_b64: str) -> bool:
+    """Verify an Ed25519 signature; return False for invalid input/signature."""
+    try:
+        public_bytes = base64.urlsafe_b64decode(
+            public_key_b64 + "=" * (-len(public_key_b64) % 4)
+        )
+        signature = base64.urlsafe_b64decode(
+            signature_b64 + "=" * (-len(signature_b64) % 4)
+        )
+        public = Ed25519PublicKey.from_public_bytes(public_bytes)
+        message = json.dumps(
+            payload, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        public.verify(signature, message)
+        return True
+    except Exception:
+        return False
