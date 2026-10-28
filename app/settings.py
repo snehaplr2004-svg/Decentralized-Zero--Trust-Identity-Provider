@@ -61,3 +61,14 @@ def generate_identity():
         serialization.NoEncryption()
     )
     return did, public_b64, private_bytes
+def _fernet() -> Fernet:
+    if not PRIVATE_KEY_ENCRYPTION_KEY:
+        raise RuntimeError(
+            "Set PRIVATE_KEY_ENCRYPTION_KEY in .env before registering users"
+        )
+    try:
+        return Fernet(PRIVATE_KEY_ENCRYPTION_KEY.encode("utf-8"))
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(
+            "PRIVATE_KEY_ENCRYPTION_KEY must be a valid Fernet key"
+        ) from exc
