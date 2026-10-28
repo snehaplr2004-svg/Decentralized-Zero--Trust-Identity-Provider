@@ -72,3 +72,14 @@ def _fernet() -> Fernet:
         raise RuntimeError(
             "PRIVATE_KEY_ENCRYPTION_KEY must be a valid Fernet key"
         ) from exc
+def encrypt_private_key(private_key_bytes: bytes) -> str:
+    """Encrypt a raw Ed25519 private key before database storage."""
+    return _fernet().encrypt(private_key_bytes).decode("utf-8")
+
+
+def decrypt_private_key(encrypted_private_key: str) -> bytes:
+    """Decrypt a stored private key. Keep the encryption key secret."""
+    try:
+        return _fernet().decrypt(encrypted_private_key.encode("utf-8"))
+    except InvalidToken as exc:
+        raise ValueError("Private key could not be decrypted") from exc
