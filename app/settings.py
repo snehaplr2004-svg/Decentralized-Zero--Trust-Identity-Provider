@@ -40,3 +40,24 @@ def verify_password(password: str, encoded: str) -> bool:
         return hmac.compare_digest(actual, expected)
     except (ValueError, TypeError):
         return False
+def generate_identity():
+    """Return (DID, base64url public key, raw private-key bytes)."""
+    private = Ed25519PrivateKey.generate()
+    public = private.public_key()
+    public_bytes = public.public_bytes(
+        serialization.Encoding.Raw,
+        serialization.PublicFormat.Raw
+    )
+    public_b64 = base64.urlsafe_b64encode(
+        public_bytes
+    ).decode().rstrip("=")
+
+    did_hash = hashlib.sha256(public_bytes).hexdigest()[:32]
+    did = f"did:zaalima:{did_hash}"
+
+    private_bytes = private.private_bytes(
+        serialization.Encoding.Raw,
+        serialization.PrivateFormat.Raw,
+        serialization.NoEncryption()
+    )
+    return did, public_b64, private_bytes
