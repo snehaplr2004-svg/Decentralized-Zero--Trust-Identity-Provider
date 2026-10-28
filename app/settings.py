@@ -108,3 +108,18 @@ def verify_payload(public_key_b64: str, payload: dict, signature_b64: str) -> bo
         return True
     except Exception:
         return False
+def create_access_token(user_id: int, username: str, role: str):
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "username": username,
+        "role": role,
+        "jti": secrets.token_urlsafe(24),
+        "iat": now,
+        "exp": now + timedelta(minutes=JWT_EXPIRE_MINUTES)
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
+def decode_access_token(token: str):
+    return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
