@@ -27,3 +27,16 @@ def hash_password(password: str) -> str:
         base64.b64encode(salt).decode(),
         base64.b64encode(result).decode()
     )
+def verify_password(password: str, encoded: str) -> bool:
+    try:
+        algorithm, iterations, salt, expected = encoded.split("$")
+        if algorithm != "pbkdf2_sha256":
+            return False
+        salt = base64.b64decode(salt)
+        expected = base64.b64decode(expected)
+        actual = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), salt, int(iterations)
+        )
+        return hmac.compare_digest(actual, expected)
+    except (ValueError, TypeError):
+        return False
