@@ -1,0 +1,19 @@
+services:
+  idp:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_PATH: /app/data/idp.db
+      LEDGER_PATH: /app/data/did_ledger.json
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - idp_data:/app/data
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
