@@ -1,10 +1,24 @@
 
-from fastapi import FastAPI, HTTPException
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Depends
+)
+from fastapi.security import (
+    HTTPBearer,
+    HTTPAuthorizationCredentials
+)
 from pydantic import BaseModel, Field
+import jwt
 
-from .security import create_did_identity, issue_access_token
+from .security import (
+    create_did_identity,
+    issue_access_token,
+    VERIFY_KEY
+)
 from .ledger import ledger
 from .policy import evaluate_risk
+from .revocation import revocation_list
 
 app = FastAPI(title="Zero-Trust IdP Mesh")
 
@@ -73,9 +87,71 @@ def create_token(payload: TokenRequest):
         "risk": risk
     }
 
-
 @app.get("/ledger")
 def show_ledger():
     return {
         "entries": ledger.list_entries()
+    }
+
+# JWT authentication
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def validate_token(
+    credentials: HTTPAuthorizationCredentials = Depends(
+        bearer_scheme
+    )
+):
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Bearer token required"
+        )
+
+    try:
+        claims = jwt.decode(
+            credentials.credentials,
+            VERIFY_KEY,
+            algorithms=["EdDSA"],
+            issuer="http://localhost:8000",
+            audience="idp-mesh-api"
+        )
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token"
+        )
+
+    if revocation_list.is_revoked(claims["jti"]):
+        raise HTTPException(
+            status_code=401,
+            detail="Token has been revoked"
+        )
+
+    return claims
+
+
+# Logout endpoint
+@app.post("/logout")
+def logout(claims: dict = Depends(validate_token)):
+    revocation_list.revoke(
+        claims["jti"],
+        claims["exp"]
+    )
+
+    return {
+        "message": "Logout successful",
+        "token_revoked": True
+    }
+
+
+# Protected endpoint
+@app.get("/protected")
+def protected_route(
+    claims: dict = Depends(validate_token)
+):
+    return {
+        "message": "Access granted",
+        "subject": claims["sub"],
+        "did": claims["did"]
     }

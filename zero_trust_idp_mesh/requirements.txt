@@ -1,0 +1,8 @@
+
+fastapi
+uvicorn
+cryptography
+PyJWT[crypto]
+pydantic-settings
+pytest
+httpx

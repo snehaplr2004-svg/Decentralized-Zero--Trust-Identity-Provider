@@ -2,6 +2,8 @@
 import base64
 import time
 import uuid
+from pathlib import Path
+
 import jwt
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -9,9 +11,50 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from cryptography.hazmat.primitives import serialization
 
-# Demonstration key. Production must load a persistent,
-# securely managed signing key.
-SIGNING_KEY = Ed25519PrivateKey.generate()
+
+# Store the signing key in the project-level keys folder.
+KEY_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "keys"
+    / "jwt_ed25519_private.pem"
+)
+
+
+def load_or_create_signing_key(key_path=KEY_PATH):
+    """
+    Load the existing Ed25519 private key.
+    If no key exists, create and save one.
+    """
+    key_path = Path(key_path)
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if key_path.exists():
+        with key_path.open("rb") as key_file:
+            private_key = serialization.load_pem_private_key(
+                key_file.read(),
+                password=None
+            )
+
+        if not isinstance(private_key, Ed25519PrivateKey):
+            raise TypeError("Stored signing key is not an Ed25519 key")
+
+        return private_key
+
+    private_key = Ed25519PrivateKey.generate()
+
+    pem_data = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+
+    key_path.write_bytes(pem_data)
+
+    return private_key
+
+
+# Load the same signing key whenever the application starts.
+SIGNING_KEY = load_or_create_signing_key()
 VERIFY_KEY = SIGNING_KEY.public_key()
 
 
@@ -21,6 +64,7 @@ def base64url(data: bytes) -> str:
 
 def create_did_identity(subject: str):
     private_key = Ed25519PrivateKey.generate()
+
     public_key = private_key.public_key().public_bytes(
         serialization.Encoding.Raw,
         serialization.PublicFormat.Raw
