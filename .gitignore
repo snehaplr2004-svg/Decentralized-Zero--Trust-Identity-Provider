@@ -1,0 +1,11 @@
+# Private JWT signing keys
+keys/
+
+# SQLite revocation database
+revocations.db
+
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+.venv-*/
