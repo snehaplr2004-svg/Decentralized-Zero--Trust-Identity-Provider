@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Depends, Request, Body
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 
 from .config import APP_NAME
 from .database import init_db, connection, audit, get_logs, get_users
@@ -20,6 +21,13 @@ from .revocation import revoke, is_revoked
 from .schemas import RegisterRequest, LoginRequest, AccessRequest
 
 app = FastAPI(title=APP_NAME, version="1.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5500"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 bearer = HTTPBearer(auto_error=False)
 templates = Jinja2Templates(directory="templates")
 
@@ -27,7 +35,7 @@ templates = Jinja2Templates(directory="templates")
 # use localhost consistently in the browser URL and WEBAUTHN_ORIGIN.
 RP_ID = os.getenv("WEBAUTHN_RP_ID", "localhost")
 RP_NAME = os.getenv("WEBAUTHN_RP_NAME", APP_NAME)
-ORIGIN = os.getenv("WEBAUTHN_ORIGIN", "http://localhost:8000")
+ORIGIN = os.getenv("WEBAUTHN_ORIGIN", "http://localhost:5500")
 CHALLENGE_TTL = int(os.getenv("CHALLENGE_TTL_SECONDS", "300"))
 
 
@@ -306,9 +314,16 @@ def webauthn_register_finish(credential: dict = Body(...), user=Depends(current_
             credential=parsed, expected_challenge=w["base64url_to_bytes"](challenge),
             expected_rp_id=RP_ID, expected_origin=ORIGIN, require_user_verification=False,
         )
-    except Exception:
-        audit("webauthn_registration_failed", user["username"], {})
-        raise HTTPException(400, "WebAuthn registration verification failed")
+    except Exception as exc:
+        print("WebAuthn registration error:", repr(exc))
+        audit("webauthn_registration_failed", user["username"], {
+            "error": repr(exc)
+        })
+        raise HTTPException(
+            400,
+            "WebAuthn registration verification failed: " + str(exc)
+        )
+
     credential_id = w["bytes_to_base64url"](result.credential_id)
     public_key = w["bytes_to_base64url"](result.credential_public_key)
     transports = credential.get("response", {}).get("transports", [])

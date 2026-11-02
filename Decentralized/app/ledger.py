@@ -61,3 +61,4 @@ def verify_chain():
             return False
 
     return True
+
