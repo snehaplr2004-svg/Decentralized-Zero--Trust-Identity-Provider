@@ -4,6 +4,8 @@
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/Decentralized/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/zaalima-zero-trust-passkey-fixed/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/zaalima-zero-trust-passkey-fixed/complete-master/zaalima-zero-trust-complete/.venv" />
     </content>
     <orderEntry type="jdk" jdkName="~\PycharmProject\Decentralized\.venv" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
