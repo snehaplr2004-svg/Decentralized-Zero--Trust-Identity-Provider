@@ -20,3 +20,12 @@ def get_redis():
             _redis = False
 
     return _redis if _redis is not False else None
+
+def revoke(jti: str, expires_at: int):
+    ttl = max(1, expires_at - int(time.time()))
+    client = get_redis()
+
+    if client:
+        client.setex(f"revoked:{jti}", ttl, "1")
+    else:
+        _local_revoked[jti] = expires_at
