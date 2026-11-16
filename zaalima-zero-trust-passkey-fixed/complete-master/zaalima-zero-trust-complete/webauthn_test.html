@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Zaalima | Passkey setup</title>
+  <style>
+    :root{font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#172033;background:#f3f6fc}
+    *{box-sizing:border-box}body{max-width:760px;margin:40px auto;padding:0 18px}
+    header,section{background:#fff;border:1px solid #e3e8f2;border-radius:16px;padding:24px;margin:16px 0;box-shadow:0 8px 28px #15264a0b}
+    h1{margin:0 0 8px;font-size:clamp(1.7rem,4vw,2.2rem)}h2{margin:0 0 12px;font-size:1.2rem}
+    p,.muted{color:#596579}.field{display:block;font-weight:600;margin:14px 0 6px}
+    input{display:block;width:100%;padding:12px;border:1px solid #cbd4e3;border-radius:9px;font:inherit}
+    button{border:0;border-radius:9px;padding:12px 18px;margin:14px 8px 0 0;background:#2457d6;color:white;font:600  .98rem system-ui;cursor:pointer}
+    button:disabled{opacity:.55;cursor:wait}.secondary{background:#e9eef9;color:#1d3157}
+    pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#101827;color:#e6edf8;padding:16px;border-radius:10px;min-height:90px}
+    .status{padding:10px 12px;border-radius:9px;background:#edf3ff;color:#1d3d7a;margin-top:12px}
+    .status.error{background:#fff0f0;color:#9b2020}.status.success{background:#eaf8ef;color:#176536}
+    code{background:#eef1f7;padding:2px 5px;border-radius:4px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Zaalima Passkey Setup</h1>
+  <p>Create a passkey with Windows Hello, Touch ID, Android screen lock, or a supported security key. For local testing, open this page from the FastAPI server—not from a separate static-file server.</p>
+  <div id="environment" class="status">Checking browser and server configuration…</div>
+</header>
+<section>
+  <h2>1. Register a passkey</h2>
+  <label class="field" for="token">Access token</label>
+  <input id="token" autocomplete="off" spellcheck="false" placeholder="Paste the access_token returned by POST /login">
+  <button id="register">Create passkey</button>
+</section>
+<section>
+  <h2>2. Sign in with your passkey</h2>
+  <label class="field" for="username">Username</label>
+  <input id="username" autocomplete="username" placeholder="Your registered username">
+  <button id="login">Sign in with passkey</button>
+</section>
+<section>
+  <h2>Activity</h2>
+  <div id="status" class="status" role="status" aria-live="polite">Ready.</div>
+  <pre id="result">No operation performed yet.</pre>
+</section>
+<script>
+'use strict';
+const API = window.location.origin;
+const $ = id => document.getElementById(id);
+const statusBox = $('status');
+const resultBox = $('result');
+
+function show(message, kind='info', details='') {
+  statusBox.textContent = message;
+  statusBox.className = 'status' + (kind === 'error' ? ' error' : kind === 'success' ? ' success' : '');
+  resultBox.textContent = details;
+}
+function decodeBase64url(value) {
+  if (typeof value !== 'string') throw new Error('Invalid base64url value from server.');
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4-value.length%4)%4);
+  const binary = atob(base64);
+  return Uint8Array.from(binary, ch => ch.charCodeAt(0));
+}
+function encodeBase64url(value) {
+  const bytes = new Uint8Array(value);
+  let binary = '';
+  for (let i=0; i<bytes.length; i+=0x8000) binary += String.fromCharCode(...bytes.subarray(i, i+0x8000));
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+async function api(path, {token, body}={}) {
+  const headers = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`${API}${path}`, {
+    method: 'POST', headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: 'no-store'
+  });
+  const raw = await response.text();
+  let data;
+  try { data = raw ? JSON.parse(raw) : {}; }
+  catch { throw new Error(`Server returned non-JSON response (HTTP ${response.status}). Check that the FastAPI server is running.`); }
+  if (!response.ok) {
+    const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+    throw new Error(`HTTP ${response.status}: ${detail}`);
+  }
+  return data;
+}
+function credentialToJSON(credential, isRegistration) {
+  const response = { clientDataJSON: encodeBase64url(credential.response.clientDataJSON) };
+  if (isRegistration) {
+    response.attestationObject = encodeBase64url(credential.response.attestationObject);
+    response.transports = typeof credential.response.getTransports === 'function' ? credential.response.getTransports() : [];
+  } else {
+    response.authenticatorData = encodeBase64url(credential.response.authenticatorData);
+    response.signature = encodeBase64url(credential.response.signature);
+    response.userHandle = credential.response.userHandle ? encodeBase64url(credential.response.userHandle) : null;
+  }
+  return {
+    id: credential.id,
+    rawId: encodeBase64url(credential.rawId),
+    type: credential.type,
+    response,
+    clientExtensionResults: credential.getClientExtensionResults()
+  };
+}
+function prepareCreationOptions(options) {
+  options.challenge = decodeBase64url(options.challenge);
+  options.user.id = decodeBase64url(options.user.id);
+  if (options.excludeCredentials) options.excludeCredentials = options.excludeCredentials.map(item => ({...item, id: decodeBase64url(item.id)}));
+  return options;
+}
+function prepareRequestOptions(options) {
+  options.challenge = decodeBase64url(options.challenge);
+  if (options.allowCredentials) options.allowCredentials = options.allowCredentials.map(item => ({...item, id: decodeBase64url(item.id)}));
+  return options;
+}
+function browserReady() {
+  if (!window.isSecureContext) throw new Error('This page is not a secure context. Use http://localhost:8000/webauthn/demo or HTTPS.');
+  if (!window.PublicKeyCredential || !navigator.credentials) throw new Error('This browser does not support WebAuthn passkeys. Try an updated Chrome, Edge, Firefox, or Safari.');
+  if (!navigator.credentials.create || !navigator.credentials.get) throw new Error('The browser credential API is unavailable.');
+}
+async function withButton(button, action) {
+  if (button.disabled) return;
+  button.disabled = true;
+  try { await action(); }
+  catch (error) {
+    const message = error && error.name === 'NotAllowedError'
+      ? 'The passkey prompt was cancelled, timed out, or no authenticator was available.'
+      : error.message || String(error);
+    show(message, 'error', error.stack || '');
+  } finally { button.disabled = false; }
+}
+
+$('register').addEventListener('click', () => withButton($('register'), async () => {
+  browserReady();
+  const token = $('token').value.trim();
+  if (!token) throw new Error('Paste your access token from POST /login first.');
+  show('Preparing passkey registration…');
+  const options = prepareCreationOptions(await api('/webauthn/register/start', {token}));
+  show('Follow the browser prompt to create and verify your passkey.');
+  const credential = await navigator.credentials.create({publicKey: options});
+  if (!credential) throw new Error('The authenticator did not return a credential.');
+  const result = await api('/webauthn/register/finish', {token, body: credentialToJSON(credential, true)});
+  show('Passkey registered successfully.', 'success', JSON.stringify(result, null, 2));
+}));
+
+$('login').addEventListener('click', () => withButton($('login'), async () => {
+  browserReady();
+  const username = $('username').value.trim();
+  if (!username) throw new Error('Enter your username first.');
+  show('Looking up your registered passkey…');
+  const options = prepareRequestOptions(await api('/webauthn/login/start', {body: {username}}));
+  show('Follow the browser prompt to sign in.');
+  const credential = await navigator.credentials.get({publicKey: options});
+  if (!credential) throw new Error('The authenticator did not return an assertion.');
+  const result = await api('/webauthn/login/finish', {body: {username, credential: credentialToJSON(credential, false)}});
+  show('Passkey login successful. Your access token is shown below.', 'success', JSON.stringify(result, null, 2));
+}));
+
+(async function checkEnvironment() {
+  try {
+    browserReady();
+    const response = await fetch(`${API}/webauthn/config`, {cache:'no-store'});
+    const config = await response.json();
+    const issues = [];
+    if (!config.host_matches_rp_id) issues.push(`Browser hostname does not match RP ID (${config.rp_id}).`);
+    if (!config.origin_matches) issues.push(`Origin mismatch: server expects ${config.expected_origin}.`);
+    if (issues.length) $('environment').textContent = issues.join(' ');
+    else $('environment').textContent = `Ready • RP ID: ${config.rp_id} • Origin: ${config.expected_origin}`;
+    if (issues.length) $('environment').className = 'status error';
+  } catch (error) {
+    $('environment').textContent = error.message;
+    $('environment').className = 'status error';
+  }
+})();
+</script>
+</body>
+</html>

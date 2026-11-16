@@ -1,0 +1,14 @@
+# Docker virtual disk files
+*.vhdx
+DockerDesktopWSL/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Environment files
+.env
+
+# IDE
+.idea/
