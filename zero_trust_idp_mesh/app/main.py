@@ -1,4 +1,5 @@
-
+from .ledger import ledger
+from .identity_store import identity_registry
 from fastapi import (
     FastAPI,
     HTTPException,
@@ -39,31 +40,24 @@ class TokenRequest(BaseModel):
 def health():
     return {"status": "ok"}
 
-
 @app.post("/identities")
 def create_identity(payload: IdentityRequest):
 
-    if identity_registry.get_identity(payload.subject):
-        raise HTTPException(
-            status_code=409,
-            detail="Identity already exists"
-        )
-
+    # Generate a new DID identity
     identity = create_did_identity(payload.subject)
 
-    if not identity_registry.add_identity(
+    # Save identity and ledger entry atomically
+    entry = identity_registry.register_identity_with_ledger(
         payload.subject,
         identity
-    ):
+    )
+
+    # If registration fails, return conflict
+    if entry is None:
         raise HTTPException(
             status_code=409,
             detail="Identity already exists"
         )
-
-    entry = ledger.anchor(
-        identity["did"],
-        identity["document"]
-    )
 
     return {
         "subject": payload.subject,
@@ -117,6 +111,10 @@ def show_ledger():
         "entries": ledger.list_entries()
     }
 
+
+@app.get("/ledger/verify")
+def verify_ledger():
+    return ledger.verify_chain()
 
 # JWT authentication
 bearer_scheme = HTTPBearer(auto_error=False)

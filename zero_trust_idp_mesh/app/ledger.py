@@ -12,6 +12,7 @@ DB_PATH = BASE_DIR / "zero_trust.db"
 
 
 class IdentityLedger:
+
     def __init__(self, db_path=DB_PATH):
         self.db_path = str(db_path)
         self._create_table()
@@ -95,6 +96,66 @@ class IdentityLedger:
             })
 
         return entries
+
+    # Verify the complete ledger hash chain
+    def verify_chain(self):
+
+        entries = self.list_entries()
+
+        expected_previous_hash = "GENESIS"
+
+        for index, entry in enumerate(entries, start=1):
+
+            # Verify previous hash connection
+            if entry["previous_hash"] != expected_previous_hash:
+                return {
+                    "valid": False,
+                    "total_entries": len(entries),
+                    "checked_entries": index - 1,
+                    "failed_entry": index,
+                    "reason": "Previous hash mismatch",
+                    "message": "Ledger integrity check failed"
+                }
+
+            # Recreate original entry data
+            entry_data = {
+                "did": entry["did"],
+                "document": entry["document"],
+                "timestamp": entry["timestamp"],
+                "previous_hash": entry["previous_hash"]
+            }
+
+            # Recalculate SHA-256 hash
+            encoded = json.dumps(
+                entry_data,
+                sort_keys=True
+            ).encode()
+
+            calculated_hash = hashlib.sha256(
+                encoded
+            ).hexdigest()
+
+            # Compare calculated hash with stored hash
+            if calculated_hash != entry["hash"]:
+                return {
+                    "valid": False,
+                    "total_entries": len(entries),
+                    "checked_entries": index - 1,
+                    "failed_entry": index,
+                    "reason": "Hash mismatch",
+                    "message": "Ledger integrity check failed"
+                }
+
+            expected_previous_hash = entry["hash"]
+
+        return {
+            "valid": True,
+            "total_entries": len(entries),
+            "checked_entries": len(entries),
+            "failed_entry": None,
+            "reason": None,
+            "message": "Ledger integrity verified successfully"
+        }
 
 
 ledger = IdentityLedger()
