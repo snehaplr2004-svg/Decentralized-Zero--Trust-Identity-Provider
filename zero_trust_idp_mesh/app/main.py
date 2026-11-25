@@ -17,12 +17,11 @@ from .security import (
     VERIFY_KEY
 )
 from .ledger import ledger
+from .identity_store import identity_registry
 from .policy import evaluate_risk
 from .revocation import revocation_list
 
 app = FastAPI(title="Zero-Trust IdP Mesh")
-
-identities = {}
 
 
 class IdentityRequest(BaseModel):
@@ -43,13 +42,28 @@ def health():
 
 @app.post("/identities")
 def create_identity(payload: IdentityRequest):
-    if payload.subject in identities:
-        raise HTTPException(409, "Identity already exists")
+
+    if identity_registry.get_identity(payload.subject):
+        raise HTTPException(
+            status_code=409,
+            detail="Identity already exists"
+        )
 
     identity = create_did_identity(payload.subject)
-    entry = ledger.anchor(identity["did"], identity["document"])
 
-    identities[payload.subject] = identity
+    if not identity_registry.add_identity(
+        payload.subject,
+        identity
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Identity already exists"
+        )
+
+    entry = ledger.anchor(
+        identity["did"],
+        identity["document"]
+    )
 
     return {
         "subject": payload.subject,
@@ -61,10 +75,16 @@ def create_identity(payload: IdentityRequest):
 
 @app.post("/token")
 def create_token(payload: TokenRequest):
-    identity = identities.get(payload.subject)
+
+    identity = identity_registry.get_identity(
+        payload.subject
+    )
 
     if not identity or identity["did"] != payload.did:
-        raise HTTPException(401, "Unknown identity")
+        raise HTTPException(
+            status_code=401,
+            detail="Unknown identity"
+        )
 
     risk = evaluate_risk(
         payload.ip_address,
@@ -72,7 +92,10 @@ def create_token(payload: TokenRequest):
     )
 
     if risk["decision"] != "allow":
-        raise HTTPException(403, detail=risk)
+        raise HTTPException(
+            status_code=403,
+            detail=risk
+        )
 
     token = issue_access_token(
         payload.subject,
@@ -87,11 +110,13 @@ def create_token(payload: TokenRequest):
         "risk": risk
     }
 
+
 @app.get("/ledger")
 def show_ledger():
     return {
         "entries": ledger.list_entries()
     }
+
 
 # JWT authentication
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -116,6 +141,7 @@ def validate_token(
             issuer="http://localhost:8000",
             audience="idp-mesh-api"
         )
+
     except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=401,
@@ -134,6 +160,7 @@ def validate_token(
 # Logout endpoint
 @app.post("/logout")
 def logout(claims: dict = Depends(validate_token)):
+
     revocation_list.revoke(
         claims["jti"],
         claims["exp"]
