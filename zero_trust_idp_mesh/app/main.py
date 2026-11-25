@@ -1,14 +1,16 @@
-from .ledger import ledger
-from .identity_store import identity_registry
+
 from fastapi import (
     FastAPI,
     HTTPException,
-    Depends
+    Depends,
+    Query
 )
+
 from fastapi.security import (
     HTTPBearer,
     HTTPAuthorizationCredentials
 )
+
 from pydantic import BaseModel, Field
 import jwt
 
@@ -17,14 +19,17 @@ from .security import (
     issue_access_token,
     VERIFY_KEY
 )
+
 from .ledger import ledger
 from .identity_store import identity_registry
 from .policy import evaluate_risk
 from .revocation import revocation_list
 
+
 app = FastAPI(title="Zero-Trust IdP Mesh")
 
 
+# Request models
 class IdentityRequest(BaseModel):
     subject: str = Field(min_length=2, max_length=120)
 
@@ -36,23 +41,25 @@ class TokenRequest(BaseModel):
     device_posture: str = "compliant"
 
 
+# Health check endpoint
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok"
+    }
 
+
+# Create a new DID identity
 @app.post("/identities")
 def create_identity(payload: IdentityRequest):
 
-    # Generate a new DID identity
     identity = create_did_identity(payload.subject)
 
-    # Save identity and ledger entry atomically
     entry = identity_registry.register_identity_with_ledger(
         payload.subject,
         identity
     )
 
-    # If registration fails, return conflict
     if entry is None:
         raise HTTPException(
             status_code=409,
@@ -67,6 +74,7 @@ def create_identity(payload: IdentityRequest):
     }
 
 
+# Generate an access token
 @app.post("/token")
 def create_token(payload: TokenRequest):
 
@@ -105,16 +113,82 @@ def create_token(payload: TokenRequest):
     }
 
 
+# Retrieve ledger entries with pagination
 @app.get("/ledger")
-def show_ledger():
+def show_ledger(
+    skip: int = 0,
+    limit: int = 10
+):
+
+    if skip < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Skip cannot be negative"
+        )
+
+    if limit < 1 or limit > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit must be between 1 and 100"
+        )
+
+    return ledger.list_entries_paginated(
+        skip=skip,
+        limit=limit
+    )
+
+
+# Verify complete ledger integrity
+@app.get("/ledger/verify")
+def verify_ledger():
+
+    return ledger.verify_chain()
+
+
+# Search ledger entries using DID
+@app.get("/ledger/search")
+def search_ledger_by_did(
+    did: str = Query(
+        ...,
+        min_length=1,
+        max_length=512
+    )
+):
+
+    did = did.strip()
+
+    if not did:
+        raise HTTPException(
+            status_code=400,
+            detail="DID cannot be empty"
+        )
+
+    entries = ledger.search_by_did(did)
+
     return {
-        "entries": ledger.list_entries()
+        "did": did,
+        "total_entries": len(entries),
+        "entries": entries
     }
 
 
-@app.get("/ledger/verify")
-def verify_ledger():
-    return ledger.verify_chain()
+# Retrieve one ledger entry by ID
+@app.get("/ledger/{entry_id}")
+def get_ledger_entry(entry_id: int):
+
+    entry = ledger.get_entry(entry_id)
+
+    if entry is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Ledger entry not found"
+        )
+
+    return {
+        "message": "Ledger entry retrieved successfully",
+        "entry": entry
+    }
+
 
 # JWT authentication
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -125,6 +199,7 @@ def validate_token(
         bearer_scheme
     )
 ):
+
     if credentials is None:
         raise HTTPException(
             status_code=401,
@@ -175,6 +250,7 @@ def logout(claims: dict = Depends(validate_token)):
 def protected_route(
     claims: dict = Depends(validate_token)
 ):
+
     return {
         "message": "Access granted",
         "subject": claims["sub"],
