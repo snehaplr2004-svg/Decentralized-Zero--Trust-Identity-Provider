@@ -1,4 +1,6 @@
 
+import uuid
+
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -6,10 +8,13 @@ client = TestClient(app)
 
 
 def test_logout_revokes_access_token():
+    # Generate a unique identity for every test run
+    subject = f"logout_test_{uuid.uuid4().hex[:12]}"
+
     # Step 1: Create a new identity
     identity_response = client.post(
         "/identities",
-        json={"subject": "logout_test_user"}
+        json={"subject": subject}
     )
 
     assert identity_response.status_code == 200
@@ -20,7 +25,7 @@ def test_logout_revokes_access_token():
     token_response = client.post(
         "/token",
         json={
-            "subject": "logout_test_user",
+            "subject": subject,
             "did": did,
             "ip_address": "127.0.0.1",
             "device_posture": "compliant"

@@ -6,7 +6,21 @@ from app import main
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+
+    # Keep existing API tests independent of Gmail.
+    monkeypatch.setattr(
+        main.settings,
+        "email_mfa_enabled",
+        False
+    )
+
+    monkeypatch.setattr(
+        main.settings,
+        "expose_development_otp",
+        True
+    )
+
     return TestClient(main.app)
 
 
@@ -22,6 +36,7 @@ def mock_identity():
 
 
 def test_health_endpoint(client):
+
     response = client.get("/health")
 
     assert response.status_code == 200
@@ -29,6 +44,7 @@ def test_health_endpoint(client):
 
 
 def test_identity_registration(client, monkeypatch):
+
     identity = {
         "did": TEST_DID,
         "document": {"id": TEST_DID}
@@ -43,7 +59,10 @@ def test_identity_registration(client, monkeypatch):
     monkeypatch.setattr(
         main.identity_registry,
         "register_identity_with_ledger",
-        lambda subject, data: {"id": 999, "did": TEST_DID}
+        lambda subject, data: {
+            "id": 999,
+            "did": TEST_DID
+        }
     )
 
     response = client.post(
@@ -56,6 +75,7 @@ def test_identity_registration(client, monkeypatch):
 
 
 def test_duplicate_identity_rejected(client, monkeypatch):
+
     monkeypatch.setattr(
         main,
         "create_did_identity",
@@ -77,6 +97,7 @@ def test_duplicate_identity_rejected(client, monkeypatch):
 
 
 def test_unknown_identity_rejected(client, monkeypatch):
+
     monkeypatch.setattr(
         main.identity_registry,
         "get_identity",
@@ -95,6 +116,7 @@ def test_unknown_identity_rejected(client, monkeypatch):
 
 
 def test_high_risk_ip_denied(client, monkeypatch):
+
     monkeypatch.setattr(
         main.identity_registry,
         "get_identity",
@@ -116,6 +138,7 @@ def test_high_risk_ip_denied(client, monkeypatch):
 
 
 def test_normal_login_and_protected_access(client, monkeypatch):
+
     monkeypatch.setattr(
         main.identity_registry,
         "get_identity",
@@ -147,6 +170,7 @@ def test_normal_login_and_protected_access(client, monkeypatch):
 
 
 def test_mfa_challenge_and_verification(client, monkeypatch):
+
     monkeypatch.setattr(
         main.identity_registry,
         "get_identity",
@@ -164,9 +188,11 @@ def test_mfa_challenge_and_verification(client, monkeypatch):
     )
 
     assert response.status_code == 200
+
     challenge = response.json()
 
     assert challenge["mfa_required"] is True
+    assert "development_otp" in challenge
 
     verification = client.post(
         "/mfa/verify",
@@ -191,6 +217,7 @@ def test_mfa_challenge_and_verification(client, monkeypatch):
 
 
 def test_protected_endpoint_rejects_missing_token(client):
+
     response = client.get("/protected")
 
     assert response.status_code == 401

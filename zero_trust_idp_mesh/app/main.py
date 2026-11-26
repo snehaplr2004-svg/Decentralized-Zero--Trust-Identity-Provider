@@ -1,4 +1,8 @@
 
+import re
+
+import jwt
+
 from fastapi import (
     FastAPI,
     HTTPException,
@@ -12,7 +16,6 @@ from fastapi.security import (
 )
 
 from pydantic import BaseModel, Field
-import jwt
 
 from .security import (
     create_did_identity,
@@ -25,14 +28,20 @@ from .identity_store import identity_registry
 from .policy import evaluate_risk
 from .revocation import revocation_list
 from .mfa import mfa_service
+from .config import settings
+from .email_service import send_otp_email
 
 
 app = FastAPI(title="Zero-Trust IdP Mesh")
 
 
+# --------------------------------------------------
 # Request models
+# --------------------------------------------------
+
 class IdentityRequest(BaseModel):
     subject: str = Field(min_length=2, max_length=120)
+    email: str | None = Field(default=None, max_length=254)
 
 
 class TokenRequest(BaseModel):
@@ -47,24 +56,60 @@ class MFAVerificationRequest(BaseModel):
     otp: str = Field(pattern=r"^\d{6}$")
 
 
-# Health check endpoint
+# --------------------------------------------------
+# Health check
+# --------------------------------------------------
+
 @app.get("/health")
 def health():
     return {
-        "status": "ok"
+        "status": "ok",
+        "environment": settings.environment
     }
 
 
+# --------------------------------------------------
 # Create a new DID identity
+# --------------------------------------------------
+
 @app.post("/identities")
 def create_identity(payload: IdentityRequest):
 
+    email = payload.email
+
+    if email is not None:
+        email = email.strip().lower()
+
+        if not re.fullmatch(
+            r"[^@\s]+@[^@\s]+\.[^@\s]+",
+            email
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="A valid email address is required"
+            )
+
+    if settings.is_production and not email:
+        raise HTTPException(
+            status_code=422,
+            detail="An email address is required for production identity registration"
+        )
+
     identity = create_did_identity(payload.subject)
 
-    entry = identity_registry.register_identity_with_ledger(
-        payload.subject,
-        identity
-    )
+    # Preserve compatibility with existing callers and tests
+    # that register identities without an email.
+    if email is None:
+        entry = identity_registry.register_identity_with_ledger(
+            payload.subject,
+            identity
+        )
+    else:
+        entry = identity_registry.register_identity_with_ledger(
+            payload.subject,
+            identity,
+            email=email
+        )
 
     if entry is None:
         raise HTTPException(
@@ -80,7 +125,10 @@ def create_identity(payload: IdentityRequest):
     }
 
 
+# --------------------------------------------------
 # Generate an access token or request MFA
+# --------------------------------------------------
+
 @app.post("/token")
 def create_token(payload: TokenRequest):
 
@@ -99,7 +147,7 @@ def create_token(payload: TokenRequest):
         payload.device_posture
     )
 
-    # Reject high-risk login attempts
+    # Reject high-risk login attempts.
     if risk["decision"] == "deny":
         raise HTTPException(
             status_code=403,
@@ -109,24 +157,79 @@ def create_token(payload: TokenRequest):
             }
         )
 
-    # Require MFA for medium-risk login attempts
+    # Require MFA for medium-risk login attempts.
     if risk["decision"] == "step_up":
+
+        email_delivery_required = (
+            settings.is_production
+            or settings.email_mfa_enabled
+        )
+
+        recipient = identity.get("email")
+
+        if email_delivery_required:
+
+            if not recipient:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This identity has no registered email address for MFA"
+                )
+
+            if not settings.smtp_configured:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Email MFA is not configured"
+                )
+
+        elif not settings.expose_development_otp:
+            raise HTTPException(
+                status_code=503,
+                detail="MFA delivery is not configured"
+            )
 
         challenge = mfa_service.create_challenge(
             payload.subject,
             payload.did
         )
 
-        return {
+        if email_delivery_required:
+
+            try:
+                send_otp_email(
+                    recipient,
+                    challenge["otp"]
+                )
+
+            except Exception:
+                # Remove the challenge if delivery fails.
+                mfa_service.discard_challenge(
+                    challenge["challenge_id"]
+                )
+
+                raise HTTPException(
+                    status_code=503,
+                    detail="Unable to deliver verification email. Please try again."
+                )
+
+        response = {
             "message": "Additional verification required",
             "mfa_required": True,
             "challenge_id": challenge["challenge_id"],
-            "development_otp": challenge["otp"],
-            "otp_expiry_seconds": 300,
+            "otp_expiry_seconds": mfa_service.otp_expiry_seconds,
             "risk": risk
         }
 
-    # Issue token for low-risk login attempts
+        # Development-only OTP exposure.
+        # Never expose OTP when email delivery is used.
+        if (
+            not email_delivery_required
+            and settings.expose_development_otp
+        ):
+            response["development_otp"] = challenge["otp"]
+
+        return response
+
+    # Issue token for low-risk login attempts.
     token = issue_access_token(
         payload.subject,
         payload.did,
@@ -142,7 +245,10 @@ def create_token(payload: TokenRequest):
     }
 
 
+# --------------------------------------------------
 # Verify OTP and issue JWT
+# --------------------------------------------------
+
 @app.post("/mfa/verify")
 def verify_mfa(payload: MFAVerificationRequest):
 
@@ -178,7 +284,10 @@ def verify_mfa(payload: MFAVerificationRequest):
     }
 
 
+# --------------------------------------------------
 # Retrieve ledger entries with pagination
+# --------------------------------------------------
+
 @app.get("/ledger")
 def show_ledger(
     skip: int = 0,
@@ -203,14 +312,20 @@ def show_ledger(
     )
 
 
+# --------------------------------------------------
 # Verify complete ledger integrity
+# --------------------------------------------------
+
 @app.get("/ledger/verify")
 def verify_ledger():
 
     return ledger.verify_chain()
 
 
+# --------------------------------------------------
 # Search ledger entries using DID
+# --------------------------------------------------
+
 @app.get("/ledger/search")
 def search_ledger_by_did(
     did: str = Query(
@@ -237,7 +352,10 @@ def search_ledger_by_did(
     }
 
 
+# --------------------------------------------------
 # Retrieve one ledger entry by ID
+# --------------------------------------------------
+
 @app.get("/ledger/{entry_id}")
 def get_ledger_entry(entry_id: int):
 
@@ -255,7 +373,10 @@ def get_ledger_entry(entry_id: int):
     }
 
 
+# --------------------------------------------------
 # JWT authentication
+# --------------------------------------------------
+
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -295,7 +416,10 @@ def validate_token(
     return claims
 
 
+# --------------------------------------------------
 # Logout endpoint
+# --------------------------------------------------
+
 @app.post("/logout")
 def logout(claims: dict = Depends(validate_token)):
 
@@ -310,7 +434,10 @@ def logout(claims: dict = Depends(validate_token)):
     }
 
 
+# --------------------------------------------------
 # Protected endpoint
+# --------------------------------------------------
+
 @app.get("/protected")
 def protected_route(
     claims: dict = Depends(validate_token)

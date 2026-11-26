@@ -1,18 +1,51 @@
 
 import hashlib
 import secrets
+import sqlite3
 import time
+
+from pathlib import Path
 from threading import Lock
+from contextlib import closing
+
+
+# Use the existing identity database.
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "zero_trust.db"
 
 
 class MFAService:
 
-    def __init__(self):
-        self.challenges = {}
-        self.lock = Lock()
+    def __init__(self, db_path=None):
+        self.db_path = Path(db_path) if db_path else DB_PATH
 
+        self.lock = Lock()
         self.otp_expiry_seconds = 300
         self.max_attempts = 5
+
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self.create_table()
+
+    def get_connection(self):
+        return sqlite3.connect(
+            self.db_path,
+            timeout=10
+        )
+
+    def create_table(self):
+        with closing(self.get_connection()) as conn:
+            with conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS mfa_challenges (
+                        challenge_id TEXT PRIMARY KEY,
+                        subject TEXT NOT NULL,
+                        did TEXT NOT NULL,
+                        otp_hash TEXT NOT NULL,
+                        expires_at REAL NOT NULL,
+                        attempts INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
 
     def create_challenge(self, subject, did):
 
@@ -24,17 +57,28 @@ class MFAService:
             f"{challenge_id}:{otp}".encode()
         ).hexdigest()
 
+        expires_at = time.time() + self.otp_expiry_seconds
+
         with self.lock:
-            self.challenges[challenge_id] = {
-                "subject": subject,
-                "did": did,
-                "otp_hash": otp_hash,
-                "expires_at": (
-                    time.time() + self.otp_expiry_seconds
-                ),
-                "attempts": 0,
-                "used": False
-            }
+            with closing(self.get_connection()) as conn:
+                with conn:
+                    conn.execute("""
+                        INSERT INTO mfa_challenges (
+                            challenge_id,
+                            subject,
+                            did,
+                            otp_hash,
+                            expires_at,
+                            attempts
+                        )
+                        VALUES (?, ?, ?, ?, ?, 0)
+                    """, (
+                        challenge_id,
+                        subject,
+                        did,
+                        otp_hash,
+                        expires_at
+                    ))
 
         return {
             "challenge_id": challenge_id,
@@ -44,76 +88,131 @@ class MFAService:
     def verify_challenge(self, challenge_id, otp):
 
         with self.lock:
+            with closing(self.get_connection()) as conn:
 
-            challenge = self.challenges.get(
-                challenge_id
-            )
+                # Prevent simultaneous verification requests
+                # from using the same challenge.
+                conn.execute("BEGIN IMMEDIATE")
 
-            if challenge is None:
-                return {
-                    "valid": False,
-                    "reason": "Invalid or expired challenge"
-                }
+                challenge = conn.execute("""
+                    SELECT
+                        subject,
+                        did,
+                        otp_hash,
+                        expires_at,
+                        attempts
+                    FROM mfa_challenges
+                    WHERE challenge_id = ?
+                """, (challenge_id,)).fetchone()
 
-            if challenge["used"]:
-                return {
-                    "valid": False,
-                    "reason": "Challenge already used"
-                }
+                if challenge is None:
+                    conn.commit()
 
-            if time.time() > challenge["expires_at"]:
-                del self.challenges[challenge_id]
+                    return {
+                        "valid": False,
+                        "reason": "Invalid or expired challenge"
+                    }
 
-                return {
-                    "valid": False,
-                    "reason": "OTP has expired"
-                }
+                subject, did, stored_hash, expires_at, attempts = challenge
 
-            if challenge["attempts"] >= self.max_attempts:
-                del self.challenges[challenge_id]
+                if time.time() > expires_at:
+                    conn.execute("""
+                        DELETE FROM mfa_challenges
+                        WHERE challenge_id = ?
+                    """, (challenge_id,))
 
-                return {
-                    "valid": False,
-                    "reason": "Maximum OTP attempts exceeded"
-                }
+                    conn.commit()
 
-            supplied_hash = hashlib.sha256(
-                f"{challenge_id}:{otp}".encode()
-            ).hexdigest()
+                    return {
+                        "valid": False,
+                        "reason": "OTP has expired"
+                    }
 
-            if not secrets.compare_digest(
-                supplied_hash,
-                challenge["otp_hash"]
-            ):
-                challenge["attempts"] += 1
+                if attempts >= self.max_attempts:
+                    conn.execute("""
+                        DELETE FROM mfa_challenges
+                        WHERE challenge_id = ?
+                    """, (challenge_id,))
 
-                if challenge["attempts"] >= self.max_attempts:
-                    del self.challenges[challenge_id]
+                    conn.commit()
 
                     return {
                         "valid": False,
                         "reason": "Maximum OTP attempts exceeded"
                     }
 
+                supplied_hash = hashlib.sha256(
+                    f"{challenge_id}:{otp}".encode()
+                ).hexdigest()
+
+                if not secrets.compare_digest(
+                    supplied_hash,
+                    stored_hash
+                ):
+
+                    new_attempts = attempts + 1
+
+                    if new_attempts >= self.max_attempts:
+                        conn.execute("""
+                            DELETE FROM mfa_challenges
+                            WHERE challenge_id = ?
+                        """, (challenge_id,))
+
+                        conn.commit()
+
+                        return {
+                            "valid": False,
+                            "reason": "Maximum OTP attempts exceeded"
+                        }
+
+                    conn.execute("""
+                        UPDATE mfa_challenges
+                        SET attempts = ?
+                        WHERE challenge_id = ?
+                    """, (new_attempts, challenge_id))
+
+                    conn.commit()
+
+                    return {
+                        "valid": False,
+                        "reason": "Incorrect OTP",
+                        "remaining_attempts": (
+                            self.max_attempts - new_attempts
+                        )
+                    }
+
+                # Correct OTP: delete the challenge so it
+                # cannot be reused.
+                conn.execute("""
+                    DELETE FROM mfa_challenges
+                    WHERE challenge_id = ?
+                """, (challenge_id,))
+
+                conn.commit()
+
                 return {
-                    "valid": False,
-                    "reason": "Incorrect OTP",
-                    "remaining_attempts": (
-                        self.max_attempts - challenge["attempts"]
-                    )
+                    "valid": True,
+                    "subject": subject,
+                    "did": did
                 }
 
-            challenge["used"] = True
 
-            result = {
-                "valid": True,
-                "subject": challenge["subject"],
-                "did": challenge["did"]
-            }
+    def discard_challenge(self, challenge_id):
 
-            del self.challenges[challenge_id]
+        """
+        Delete a challenge when OTP delivery fails.
+        """
 
-            return result
+        with self.lock:
+
+            with closing(self.get_connection()) as conn:
+
+                with conn:
+
+                    conn.execute("""
+                        DELETE FROM mfa_challenges
+                        WHERE challenge_id = ?
+                    """, (challenge_id,))
 
 
 mfa_service = MFAService()
