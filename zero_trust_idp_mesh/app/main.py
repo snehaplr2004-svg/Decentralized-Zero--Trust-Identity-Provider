@@ -24,6 +24,7 @@ from .ledger import ledger
 from .identity_store import identity_registry
 from .policy import evaluate_risk
 from .revocation import revocation_list
+from .mfa import mfa_service
 
 
 app = FastAPI(title="Zero-Trust IdP Mesh")
@@ -39,6 +40,11 @@ class TokenRequest(BaseModel):
     did: str
     ip_address: str = "127.0.0.1"
     device_posture: str = "compliant"
+
+
+class MFAVerificationRequest(BaseModel):
+    challenge_id: str = Field(min_length=1, max_length=128)
+    otp: str = Field(pattern=r"^\d{6}$")
 
 
 # Health check endpoint
@@ -74,7 +80,7 @@ def create_identity(payload: IdentityRequest):
     }
 
 
-# Generate an access token
+# Generate an access token or request MFA
 @app.post("/token")
 def create_token(payload: TokenRequest):
 
@@ -93,12 +99,34 @@ def create_token(payload: TokenRequest):
         payload.device_posture
     )
 
-    if risk["decision"] != "allow":
+    # Reject high-risk login attempts
+    if risk["decision"] == "deny":
         raise HTTPException(
             status_code=403,
-            detail=risk
+            detail={
+                "message": "Access denied by risk policy",
+                "risk": risk
+            }
         )
 
+    # Require MFA for medium-risk login attempts
+    if risk["decision"] == "step_up":
+
+        challenge = mfa_service.create_challenge(
+            payload.subject,
+            payload.did
+        )
+
+        return {
+            "message": "Additional verification required",
+            "mfa_required": True,
+            "challenge_id": challenge["challenge_id"],
+            "development_otp": challenge["otp"],
+            "otp_expiry_seconds": 300,
+            "risk": risk
+        }
+
+    # Issue token for low-risk login attempts
     token = issue_access_token(
         payload.subject,
         payload.did,
@@ -109,7 +137,44 @@ def create_token(payload: TokenRequest):
     return {
         "access_token": token,
         "token_type": "Bearer",
+        "mfa_required": False,
         "risk": risk
+    }
+
+
+# Verify OTP and issue JWT
+@app.post("/mfa/verify")
+def verify_mfa(payload: MFAVerificationRequest):
+
+    result = mfa_service.verify_challenge(
+        payload.challenge_id,
+        payload.otp
+    )
+
+    if not result["valid"]:
+        raise HTTPException(
+            status_code=401,
+            detail=result
+        )
+
+    verified_risk = {
+        "decision": "allow",
+        "step_up_required": True,
+        "mfa_verified": True
+    }
+
+    token = issue_access_token(
+        result["subject"],
+        result["did"],
+        ["openid", "profile"],
+        verified_risk
+    )
+
+    return {
+        "message": "MFA verification successful",
+        "access_token": token,
+        "token_type": "Bearer",
+        "mfa_verified": True
     }
 
 

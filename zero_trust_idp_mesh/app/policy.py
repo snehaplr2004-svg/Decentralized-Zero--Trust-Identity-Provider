@@ -21,7 +21,7 @@ def evaluate_risk(
     if device_posture.lower() not in {
         "compliant", "managed", "healthy"
     }:
-        score += 50
+        score += 30
         reasons.append("untrusted_device")
 
     hour = datetime.now(timezone.utc).hour
